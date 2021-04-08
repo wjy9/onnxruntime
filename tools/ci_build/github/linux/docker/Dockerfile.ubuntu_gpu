@@ -2,13 +2,26 @@ FROM nvidia/cuda:10.1-cudnn7-devel-ubuntu16.04
 
 ARG PYTHON_VERSION=3.6
 ARG INSTALL_DEPS_EXTRA_ARGS
+ARG USE_CONDA=false
 
 ADD scripts /tmp/scripts
-RUN /tmp/scripts/install_ubuntu.sh -p $PYTHON_VERSION && \
-    /tmp/scripts/install_deps.sh -p $PYTHON_VERSION -d gpu $INSTALL_DEPS_EXTRA_ARGS && \
-    rm -rf /tmp/scripts
+RUN /tmp/scripts/install_ubuntu.sh -p $PYTHON_VERSION
 
 WORKDIR /root
+
+ARG MINICONDA_PREFIX=/usr/local/miniconda3
+RUN if [ "$USE_CONDA" = "true" ] ; \
+    then MINICONDA=miniconda.sh && \
+    wget --no-check-certificate --no-verbose https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O $MINICONDA && \
+    chmod a+x $MINICONDA && \
+    ./$MINICONDA -b -p $MINICONDA_PREFIX && \
+    rm ./$MINICONDA && \
+    $MINICONDA_PREFIX/bin/conda clean --yes --all && \
+    $MINICONDA_PREFIX/bin/conda install -y python=$PYTHON_VERSION; \
+    fi
+
+RUN /tmp/scripts/install_deps.sh -p $PYTHON_VERSION -d gpu $INSTALL_DEPS_EXTRA_ARGS -c && \
+    rm -rf /tmp/scripts
 
 # Allow configure to pick up GDK and CuDNN where it expects it.
 # (Note: $CUDNN_VERSION is defined by NVidia's base image)
@@ -19,6 +32,7 @@ RUN _CUDNN_VERSION=$(echo $CUDNN_VERSION | cut -d. -f1-2) && \
     ln -s /etc/alternatives/libcudnn_so /usr/local/cudnn-$_CUDNN_VERSION/cuda/lib64/libcudnn.so && \
     ln -s /usr/local/cudnn{-$_CUDNN_VERSION,}
 
+ENV PATH /usr/local/miniconda3/bin:$PATH
 ENV LD_LIBRARY_PATH /usr/local/openblas/lib:$LD_LIBRARY_PATH
 
 ARG BUILD_USER=onnxruntimedev

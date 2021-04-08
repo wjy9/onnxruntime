@@ -5,8 +5,9 @@ SCRIPT_DIR="$( dirname "${BASH_SOURCE[0]}" )"
 INSTALL_DEPS_TRAINING=false
 INSTALL_DEPS_DISTRIBUTED_SETUP=false
 ORTMODULE_BUILD=false
+USE_CONDA=false
 
-while getopts p:d:tmu parameter_Option
+while getopts p:d:tmuc parameter_Option
 do case "${parameter_Option}"
 in
 p) PYTHON_VER=${OPTARG};;
@@ -14,6 +15,7 @@ d) DEVICE_TYPE=${OPTARG};;
 t) INSTALL_DEPS_TRAINING=true;;
 m) INSTALL_DEPS_DISTRIBUTED_SETUP=true;;
 u) ORTMODULE_BUILD=true;;
+c) USE_CONDA=true;;
 esac
 done
 
@@ -55,7 +57,9 @@ function GetFile {
   return $?
 }
 
-if [[ "$PYTHON_VER" = "3.5" && -d "/opt/python/cp35-cp35m"  ]]; then
+if [[ $INSTALL_DEPS_TRAINING = true ]]; then
+   PYTHON_EXE="/usr/local/miniconda3/bin/python"
+elif [[ "$PYTHON_VER" = "3.5" && -d "/opt/python/cp35-cp35m"  ]]; then
    PYTHON_EXE="/opt/python/cp35-cp35m/bin/python3.5"
 elif [[ "$PYTHON_VER" = "3.6" && -d "/opt/python/cp36-cp36m"  ]]; then
    PYTHON_EXE="/opt/python/cp36-cp36m/bin/python3.6"
