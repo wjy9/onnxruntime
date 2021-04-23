@@ -13,6 +13,8 @@ namespace external_functions {
 
 class ATenEmbeddingFunction;
 class ATenEmbeddingBackwardFunction;
+class ATenCudnnBatchNormFunction;
+class ATenCudnnBatchNormBackwardFunction;
 
 using ExternalFunctionKernelFnCreator = std::unique_ptr<OpKernel> (*)(const OpKernelInfo&, void*);
 using ExternalFunctionKernelFnCreatorMap =
@@ -22,6 +24,8 @@ std::unique_ptr<OpKernel> CreateExternalFunctionKernel(const std::string& name, 
                                                        bool is_backward) {
   static const ExternalFunctionKernelFnCreatorMap creator_map = {
       EXTERNAL_FUNCTION_KERNEL_CREATOR_INFO("aten::embedding", ATenEmbeddingFunction, ATenEmbeddingBackwardFunction),
+      EXTERNAL_FUNCTION_KERNEL_CREATOR_INFO("aten::cudnn_batch_norm", ATenCudnnBatchNormFunction,
+                                            ATenCudnnBatchNormBackwardFunction),
   };
 
   void* p_fn_raw = ExternalFunctionRegistry::GetInstance().GetFunction(name, is_backward);

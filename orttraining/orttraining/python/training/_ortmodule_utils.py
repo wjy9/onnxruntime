@@ -90,6 +90,7 @@ def _load_aten_functions_cpp_extension(verbosity, is_rocm_pytorch):
     aten_functions_cpp_source = """
 #include <torch/torch.h>
 #include <ATen/DLConvertor.h>
+#include <tuple>
 
 DLManagedTensor* aten_embedding(const DLManagedTensor* weight, const DLManagedTensor* indices, int64_t padding_idx,
                                 bool scale_grad_by_freq) {
@@ -103,16 +104,48 @@ DLManagedTensor* aten_embedding_backward(const DLManagedTensor* grad, const DLMa
                                              at::fromDLPack(weight).size(0), padding_idx, scale_grad_by_freq, false));
 }
 
+std::tuple<DLManagedTensor*, DLManagedTensor*, DLManagedTensor*, DLManagedTensor*> aten_cudnn_batch_norm(
+    const DLManagedTensor* input, const DLManagedTensor* weight, const DLManagedTensor* bias,
+    const DLManagedTensor* running_mean, const DLManagedTensor* running_var, float momentum, float eps) {
+  auto torch_result =
+      at::cudnn_batch_norm(at::fromDLPack(input), at::fromDLPack(weight), at::fromDLPack(bias),
+                           at::fromDLPack(running_mean), at::fromDLPack(running_var), true /*training*/, momentum, eps);
+  return std::make_tuple(at::toDLPack(std::get<0>(torch_result)), at::toDLPack(std::get<1>(torch_result)),
+                         at::toDLPack(std::get<2>(torch_result)), at::toDLPack(std::get<3>(torch_result)));
+}
+
+std::tuple<DLManagedTensor*, DLManagedTensor*, DLManagedTensor*> aten_cudnn_batch_norm_backward(
+    const DLManagedTensor* grad_output, const DLManagedTensor* input, const DLManagedTensor* weight,
+    const DLManagedTensor* running_mean, const DLManagedTensor* running_var, const DLManagedTensor* save_mean,
+    const DLManagedTensor* save_var, const DLManagedTensor* reserve_space, float eps) {
+  auto torch_input = at::fromDLPack(input);
+  auto torch_reserve_space = reserve_space->dl_tensor.data ? at::fromDLPack(reserve_space)
+                                                           : at::empty({0}, torch_input.options().dtype(c10::kByte));
+  auto torch_result = at::cudnn_batch_norm_backward(torch_input, at::fromDLPack(grad_output),
+                                                    at::fromDLPack(weight), at::fromDLPack(running_mean),
+                                                    at::fromDLPack(running_var), at::fromDLPack(save_mean),
+                                                    at::fromDLPack(save_var), eps, torch_reserve_space);
+  return std::make_tuple(at::toDLPack(std::get<0>(torch_result)), at::toDLPack(std::get<1>(torch_result)),
+                         at::toDLPack(std::get<2>(torch_result)));
+}
+
 size_t aten_embedding_address() { return reinterpret_cast<size_t>(&aten_embedding); }
 size_t aten_embedding_backward_address() { return reinterpret_cast<size_t>(&aten_embedding_backward); }
+size_t aten_cudnn_batch_norm_address() { return reinterpret_cast<size_t>(&aten_cudnn_batch_norm); }
+size_t aten_cudnn_batch_norm_backward_address() { return reinterpret_cast<size_t>(&aten_cudnn_batch_norm_backward); }
     """
 
     aten_functions_cpp_extension = load_inline(name='inline_extension_aten_functions', cpp_sources=[aten_functions_cpp_source],
                                                extra_cflags=['-D__HIP_PLATFORM_HCC__=1' if is_rocm_pytorch else ''],
                                                functions=['aten_embedding_address',
-                                                          'aten_embedding_backward_address'],
+                                                          'aten_embedding_backward_address',
+                                                          'aten_cudnn_batch_norm_address',
+                                                          'aten_cudnn_batch_norm_backward_address'],
                                                verbose=verbosity, with_cuda=True)
 
     onnxruntime.register_external_function("aten::embedding",
                                            str(aten_functions_cpp_extension.aten_embedding_address()),
                                            str(aten_functions_cpp_extension.aten_embedding_backward_address()))
+    onnxruntime.register_external_function("aten::cudnn_batch_norm",
+                                           str(aten_functions_cpp_extension.aten_cudnn_batch_norm_address()),
+                                           str(aten_functions_cpp_extension.aten_cudnn_batch_norm_backward_address()))

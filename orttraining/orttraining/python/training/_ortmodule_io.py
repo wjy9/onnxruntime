@@ -64,6 +64,8 @@ def _convert_input_to_list(param_names, user_input_names, buffer_names, inputs, 
         elif input_idx >= len(non_none_inputs):
             # Registered buffers are translated to user_input+initializer in ONNX
             buffer_name, inp = next(named_buffers_iter)
+            if buffer_name.endswith('num_batches_tracked'):
+                buffer_name, inp = next(named_buffers_iter)
             assert buffer_name == name, f'Input name {name} expected, but {buffer_name} found!'
 
         if inp is not None:
