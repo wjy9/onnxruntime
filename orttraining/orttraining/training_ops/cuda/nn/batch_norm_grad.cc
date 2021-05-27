@@ -5,58 +5,79 @@
 #include "core/providers/common.h"
 #include "core/providers/cuda/cudnn_common.h"
 #include "core/providers/cpu/nn/batch_norm_helper.h"
+#include "core/providers/cuda/math/unary_elementwise_ops_impl.h"
 
 using namespace std;
 namespace onnxruntime {
 namespace cuda {
 
-#define REGISTER_GRADIENT_KERNEL_TYPED(T)                                                  \
+#define REGISTER_GRADIENT_KERNEL_TYPED(T, U)                                               \
   ONNX_OPERATOR_TYPED_KERNEL_EX(                                                           \
       BatchNormalizationGrad,                                                              \
       kMSDomain,                                                                           \
       1,                                                                                   \
-      T,                                                                                   \
+      T##_##U,                                                                             \
       kCudaExecutionProvider,                                                              \
-      (*KernelDefBuilder::Create()).TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
-      BatchNormalizationGrad<T>);
+      (*KernelDefBuilder::Create()).TypeConstraint("T", DataTypeImpl::GetTensorType<T>())  \
+                                   .TypeConstraint("U", DataTypeImpl::GetTensorType<U>()), \
+      BatchNormalizationGrad<T, U>);
 
-template <typename T>
-Status BatchNormalizationGrad<T>::ComputeInternal(OpKernelContext* ctx) const {
+template <typename T, typename U>
+Status BatchNormalizationGrad<T, U>::ComputeInternal(OpKernelContext* ctx) const {
   typedef typename ToCudaType<T>::MappedType CudaT;
+  typedef typename ToCudaType<U>::MappedType CudaU;
 
   const Tensor* dY = ctx->Input<Tensor>(0);
   const Tensor* X = ctx->Input<Tensor>(1);
   const Tensor* Scale = ctx->Input<Tensor>(2);
   const Tensor* saved_mean = ctx->Input<Tensor>(3);
-  const Tensor* saved_variance = ctx->Input<Tensor>(4);
+  const Tensor* saved_inv_var = ctx->Input<Tensor>(4);
   const TensorShape input_shape = X->Shape();
   const TensorShape channel_shape = saved_mean->Shape();
 
   // no B here, but B has same size as Scale, so can validate inputs for gradient with this substitute
-  ORT_RETURN_IF_ERROR(BatchNormHelper::ValidateInputs(X, Scale, Scale, saved_mean, saved_variance));
+  ORT_RETURN_IF_ERROR(BatchNormHelper::ValidateInputs(X, Scale, Scale, saved_mean, saved_inv_var));
 
   auto dY_data = reinterpret_cast<const CudaT*>(dY->template Data<T>());
   auto X_data = reinterpret_cast<const CudaT*>(X->template Data<T>());
   auto Scale_data = reinterpret_cast<const CudaT*>(Scale->template Data<T>());
-  auto saved_mean_data = reinterpret_cast<const CudaT*>(saved_mean->template Data<T>());
-  auto saved_variance_data = reinterpret_cast<const CudaT*>(saved_variance->template Data<T>());
+  auto saved_mean_data = reinterpret_cast<const CudaU*>(saved_mean->template Data<U>());
+  auto saved_inv_var_data = reinterpret_cast<const CudaU*>(saved_inv_var->template Data<U>());
 
   auto dX_data = reinterpret_cast<CudaT*>(ctx->Output(0, input_shape)->template MutableData<T>());
   auto dScale_data = reinterpret_cast<CudaT*>(ctx->Output(1, channel_shape)->template MutableData<T>());
   auto dBias_data = reinterpret_cast<CudaT*>(ctx->Output(2, channel_shape)->template MutableData<T>());
 
-  const auto alpha = Consts<CudaT>::One;
-  const auto beta = Consts<CudaT>::Zero;
+  const auto alpha = Consts<float>::One;
+  const auto beta = Consts<float>::Zero;
 
   CudnnTensor input_tensor, scale_bias_tensor;
   vector<int64_t> new_dims;
   BatchNormHelper::NormalizeDims(input_shape, new_dims);
   ORT_RETURN_IF_ERROR(input_tensor.Set(new_dims, CudnnTensor::GetDataType<CudaT>()));
-  ORT_RETURN_IF_ERROR(scale_bias_tensor.Set(input_tensor, cudnn_batch_norm_mode_));
 
-  // note this is only valid for cudnnBatchNormalizationForwardTraining, not ForwardInference
-  CUDNN_RETURN_IF_ERROR(
-      cudnnBatchNormalizationBackward(
+  if (X->IsDataType<MLFloat16>()) {
+    const int64_t C = input_shape.GetDims()[1];
+    auto f_scale = GetScratchBuffer<float>(C);
+    auto f_dScale = GetScratchBuffer<float>(C);
+    auto f_dBias = GetScratchBuffer<float>(C);
+    // auto f_saved_mean = GetScratchBuffer<float>(C);
+    // auto f_saved_inv_var = GetScratchBuffer<float>(C);
+
+    CudnnTensor tmp_tensor;
+    ORT_RETURN_IF_ERROR(tmp_tensor.Set(new_dims, CudnnTensor::GetDataType<float>()));
+    ORT_RETURN_IF_ERROR(scale_bias_tensor.Set(tmp_tensor, cudnn_batch_norm_mode_));
+
+    Impl_Cast<CudaT, float>(Stream(), Scale_data, f_scale.get(), C);
+
+    if (saved_mean->IsDataType<MLFloat16>()) {
+      auto f_saved_mean = GetScratchBuffer<float>(C);
+      auto f_saved_inv_var = GetScratchBuffer<float>(C);
+
+      Impl_Cast<CudaU, float>(Stream(), saved_mean_data, f_saved_mean.get(), C);
+      Impl_Cast<CudaU, float>(Stream(), saved_inv_var_data, f_saved_inv_var.get(), C);
+
+      CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationBackward(
           CudnnHandle(),
           cudnn_batch_norm_mode_,
           &alpha,
@@ -70,21 +91,73 @@ Status BatchNormalizationGrad<T>::ComputeInternal(OpKernelContext* ctx) const {
           input_tensor,
           dX_data,
           scale_bias_tensor,
-          Scale_data,
-          dScale_data,
-          dBias_data,
+          f_scale.get(),
+          f_dScale.get(),
+          f_dBias.get(),
+          epsilon_,
+          f_saved_mean.get(),
+          f_saved_inv_var.get()));
+    } else {
+      CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationBackward(
+          CudnnHandle(),
+          cudnn_batch_norm_mode_,
+          &alpha,
+          &beta,
+          &alpha,
+          &beta,
+          input_tensor,
+          X_data,
+          input_tensor,
+          dY_data,
+          input_tensor,
+          dX_data,
+          scale_bias_tensor,
+          f_scale.get(),
+          f_dScale.get(),
+          f_dBias.get(),
           epsilon_,
           saved_mean_data,
-          saved_variance_data));
+          saved_inv_var_data));
+    }
+
+    Impl_Cast<float, CudaT>(Stream(), f_dScale.get(), dScale_data, C);
+    Impl_Cast<float, CudaT>(Stream(), f_dBias.get(), dBias_data, C);
+  } else {
+    ORT_RETURN_IF_ERROR(scale_bias_tensor.Set(input_tensor, cudnn_batch_norm_mode_));
+
+    CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationBackward(
+        CudnnHandle(),
+        cudnn_batch_norm_mode_,
+        &alpha,
+        &beta,
+        &alpha,
+        &beta,
+        input_tensor,
+        X_data,
+        input_tensor,
+        dY_data,
+        input_tensor,
+        dX_data,
+        scale_bias_tensor,
+        Scale_data,
+        dScale_data,
+        dBias_data,
+        epsilon_,
+        saved_mean_data,
+        saved_inv_var_data));
+  }
+
   return Status::OK();
 }
 
-#define SPECIALIZED_GRADIENT(T)     \
-  REGISTER_GRADIENT_KERNEL_TYPED(T) \
-  template Status BatchNormalizationGrad<T>::ComputeInternal(OpKernelContext* ctx) const;
+#define SPECIALIZED_GRADIENT(T, U)     \
+  REGISTER_GRADIENT_KERNEL_TYPED(T, U) \
+  template Status BatchNormalizationGrad<T, U>::ComputeInternal(OpKernelContext* ctx) const;
 
-SPECIALIZED_GRADIENT(float)
-SPECIALIZED_GRADIENT(double)
+SPECIALIZED_GRADIENT(float, float)
+SPECIALIZED_GRADIENT(double, double)
+SPECIALIZED_GRADIENT(MLFloat16, MLFloat16)
+SPECIALIZED_GRADIENT(MLFloat16, float)
 
 }  // namespace cuda
 }  // namespace onnxruntime
