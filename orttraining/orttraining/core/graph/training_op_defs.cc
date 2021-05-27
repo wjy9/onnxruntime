@@ -1437,7 +1437,7 @@ Example 4:
       })
       .SetContextDependentFunctionBodyBuilder(
           [](const FunctionBodyBuildContext& ctx, const OpSchema& schema, FunctionProto& functionProto) {
-            /* DropoutGrad (dy, mask, optional ratio, optional training_mode) => dX 
+            /* DropoutGrad (dy, mask, optional ratio, optional training_mode) => dX
                  dX = Where (mask, dY / (1-ratio), 0)
               where ratio = 0.5 if not specified.
 
@@ -1803,7 +1803,7 @@ Example 4:
       .TypeAndShapeInferenceFunction(ONNX_NAMESPACE::propagateShapeAndTypeFromFirstInput)
       .SetContextDependentFunctionBodyBuilder(
           [](const FunctionBodyBuildContext& ctx, const OpSchema& schema, FunctionProto& functionProto) {
-            /* Default GeluGrad computation: 
+            /* Default GeluGrad computation:
               dX = dY * [0.5f * [erf(sqrt(1/2)*X) + 1.0] + alpha*X*exp(-0.5f * X * X)]
             which expands to the following ONNX graph:
             */
@@ -1932,13 +1932,17 @@ Example 4:
       .Input(0, "dY", "Gradient output from previous node", "T")
       .Input(1, "X", "Input", "T")
       .Input(2, "scale", "Scale tensor", "T")
-      .Input(3, "mean", "Mean of X", "T")
-      .Input(4, "variance", "Variance of X", "T")
+      .Input(3, "mean", "Mean of X", "U")
+      .Input(4, "variance", "Variance of X", "U")
       .Output(0, "X_grad", "Gradient of the input", "T")
       .Output(1, "scale_grad", "Gradient of the scale", "T")
       .Output(2, "bias_grad", "Gradient of the bias", "T")
       .TypeConstraint(
           "T",
+          {"tensor(float16)", "tensor(float)", "tensor(double)", "tensor(bfloat16)"},
+          "Constrain input and output types to float tensors.")
+      .TypeConstraint(
+          "U",
           {"tensor(float16)", "tensor(float)", "tensor(double)", "tensor(bfloat16)"},
           "Constrain input and output types to float tensors.");
 
