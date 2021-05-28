@@ -27,7 +27,6 @@ namespace cuda {
 
 template <typename T, typename U>
 Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_context) const {
-  std::cout << "Entering BNI ...\n";
   typedef typename ToCudaType<T>::MappedType CudaT;
   typedef typename ToCudaType<U>::MappedType CudaU;
 
