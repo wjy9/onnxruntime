@@ -27,7 +27,6 @@ namespace cuda {
 
 template <typename T, typename U>
 Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_context) const {
-  std::cout << "Entering BNI ...\n";
   typedef typename ToCudaType<T>::MappedType CudaT;
   typedef typename ToCudaType<U>::MappedType CudaU;
 
@@ -63,6 +62,7 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
   vector<int64_t> new_dims;
   BatchNormHelper::NormalizeDims(x_shape, new_dims);
   ORT_RETURN_IF_ERROR(data_desc.Set(new_dims, CudnnTensor::GetDataType<CudaT>()));
+  ORT_RETURN_IF_ERROR(bn_tensor_desc.Set(data_desc, cudnn_batch_norm_mode_));
 
   auto running_mean_data = reinterpret_cast<CudaU*>(running_mean->template MutableData<U>());
   auto running_var_data = reinterpret_cast<CudaU*>(running_var->template MutableData<U>());
@@ -70,94 +70,70 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
   auto saved_inv_var_data = reinterpret_cast<CudaU*>(saved_inv_var->template MutableData<U>());
 
   const int64_t C = x_shape.GetDims()[1];
-  auto f_mean = GetScratchBuffer<float>(C);
-  auto f_var = GetScratchBuffer<float>(C);
-  Impl_Cast<CudaU, float>(Stream(), mean_data, f_mean.get(), C);
-  Impl_Cast<CudaU, float>(Stream(), var_data, f_var.get(), C);
+  auto p_scale = reinterpret_cast<const void*>(scale_data);
+  auto p_B = reinterpret_cast<const void*>(b_data);
+  auto p_running_mean = reinterpret_cast<void*>(running_mean_data);
+  auto p_running_var = reinterpret_cast<void*>(running_var_data);
+  auto p_saved_mean = reinterpret_cast<void*>(saved_mean_data);
+  auto p_saved_inv_var = reinterpret_cast<void*>(saved_inv_var_data);
 
-  if (X->IsDataType<MLFloat16>()) {
+  if (std::is_same<T, MLFloat16>::value) {
+    // Convert scale/B to float
     CudnnTensor scale_desc;
     ORT_RETURN_IF_ERROR(scale_desc.Set(new_dims, CudnnTensor::GetDataType<float>()));
     ORT_RETURN_IF_ERROR(bn_tensor_desc.Set(scale_desc, cudnn_batch_norm_mode_));
-
-    // Convert scale/B to float
     auto f_scale = GetScratchBuffer<float>(C);
     auto f_B = GetScratchBuffer<float>(C);
 
     Impl_Cast<CudaT, float>(Stream(), scale_data, f_scale.get(), C);
     Impl_Cast<CudaT, float>(Stream(), b_data, f_B.get(), C);
 
-    if (mean->IsDataType<MLFloat16>()) {
-      // Convert saved mean/inv_var to float
-      auto f_saved_mean = GetScratchBuffer<float>(C);
-      auto f_saved_inv_var = GetScratchBuffer<float>(C);
-
-      CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationForwardTraining(
-          CudnnHandle(),
-          cudnn_batch_norm_mode_,
-          &alpha,
-          &beta,
-          data_desc,
-          x_data,
-          data_desc,
-          y_data,
-          bn_tensor_desc,
-          f_scale.get(),
-          f_B.get(),
-          momentum_,
-          f_mean.get(),
-          f_var.get(),
-          epsilon_,
-          f_saved_mean.get(),
-          f_saved_inv_var.get()));
-
-      Impl_Cast<float, CudaU>(Stream(), f_saved_mean.get(), saved_mean_data, C);
-      Impl_Cast<float, CudaU>(Stream(), f_saved_inv_var.get(), saved_inv_var_data, C);
-    } else {
-      CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationForwardTraining(
-          CudnnHandle(),
-          cudnn_batch_norm_mode_,
-          &alpha,
-          &beta,
-          data_desc,
-          x_data,
-          data_desc,
-          y_data,
-          bn_tensor_desc,
-          f_scale.get(),
-          f_B.get(),
-          momentum_,
-          f_mean.get(),
-          f_var.get(),
-          epsilon_,
-          saved_mean_data,
-          saved_inv_var_data));
-    }
-  } else {
-    ORT_RETURN_IF_ERROR(bn_tensor_desc.Set(data_desc, cudnn_batch_norm_mode_));
-
-    CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationForwardTraining(
-        CudnnHandle(),
-        cudnn_batch_norm_mode_,
-        &alpha,
-        &beta,
-        data_desc,
-        x_data,
-        data_desc,
-        y_data,
-        bn_tensor_desc,
-        scale_data,
-        b_data,
-        momentum_,
-        f_mean.get(),
-        f_var.get(),
-        epsilon_,
-        saved_mean_data,
-        saved_inv_var_data));
+    p_scale = f_scale.get();
+    p_B = f_B.get();
   }
 
-  Impl_Cast<float, CudaU>(Stream(), f_mean.get(), running_mean_data, C);
-  Impl_Cast<float, CudaU>(Stream(), f_var.get(), running_var_data, C);
+  if (std::is_same<U, MLFloat16>::value) {
+    // Convert mean/var to float
+    auto f_running_mean = GetScratchBuffer<float>(C);
+    auto f_running_var = GetScratchBuffer<float>(C);
+    auto f_saved_mean = GetScratchBuffer<float>(C);
+    auto f_saved_inv_var = GetScratchBuffer<float>(C);
+
+    Impl_Cast<CudaU, float>(Stream(), running_mean_data, f_running_mean.get(), C);
+    Impl_Cast<CudaU, float>(Stream(), running_var_data, f_running_var.get(), C);
+
+    p_running_mean = f_running_mean.get();
+    p_running_var = f_running_var.get();
+    p_saved_mean = f_saved_mean.get();
+    p_saved_inv_var = f_saved_inv_var.get();
+  } else if (mean_data != running_mean_data) {
+    CUDA_RETURN_IF_ERROR(cudaMemcpyAsync(running_mean_data, mean_data, C * sizeof(U), cudaMemcpyDeviceToDevice, Stream()));
+    CUDA_RETURN_IF_ERROR(cudaMemcpyAsync(running_var_data, var_data, C * sizeof(U), cudaMemcpyDeviceToDevice, Stream()));
+  }
+
+  CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationForwardTraining(
+      CudnnHandle(),
+      cudnn_batch_norm_mode_,
+      &alpha,
+      &beta,
+      data_desc,
+      x_data,
+      data_desc,
+      y_data,
+      bn_tensor_desc,
+      p_scale,
+      p_B,
+      momentum_,
+      p_running_mean,
+      p_running_var,
+      epsilon_,
+      p_saved_mean,
+      p_saved_inv_var));
+
+  if (std::is_same<U, MLFloat16>::value) {
+    Impl_Cast<float, CudaU>(Stream(), reinterpret_cast<float*>(p_saved_mean), saved_mean_data, C);
+    Impl_Cast<float, CudaU>(Stream(), reinterpret_cast<float*>(p_saved_inv_var), saved_inv_var_data, C);
+  }
 
   return Status::OK();
 }
