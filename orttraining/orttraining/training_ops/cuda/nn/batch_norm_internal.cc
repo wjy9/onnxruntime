@@ -45,7 +45,7 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
   Tensor* running_mean = p_op_kernel_context->Output(1, channel_shape);
   Tensor* running_var = p_op_kernel_context->Output(2, channel_shape);
   Tensor* saved_mean = p_op_kernel_context->Output(3, channel_shape);
-  Tensor* saved_inv_var = p_op_kernel_context->Output(4, channel_shape);
+  Tensor* saved_inv_std = p_op_kernel_context->Output(4, channel_shape);
 
   auto x_data = reinterpret_cast<const CudaT*>(X->template Data<T>());
   auto scale_data = reinterpret_cast<const CudaT*>(scale->template Data<T>());
@@ -67,7 +67,7 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
   auto running_mean_data = reinterpret_cast<CudaU*>(running_mean->template MutableData<U>());
   auto running_var_data = reinterpret_cast<CudaU*>(running_var->template MutableData<U>());
   auto saved_mean_data = reinterpret_cast<CudaU*>(saved_mean->template MutableData<U>());
-  auto saved_inv_var_data = reinterpret_cast<CudaU*>(saved_inv_var->template MutableData<U>());
+  auto saved_inv_std_data = reinterpret_cast<CudaU*>(saved_inv_std->template MutableData<U>());
 
   const int64_t C = x_shape.GetDims()[1];
   auto p_scale = reinterpret_cast<const void*>(scale_data);
@@ -75,7 +75,7 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
   auto p_running_mean = reinterpret_cast<void*>(running_mean_data);
   auto p_running_var = reinterpret_cast<void*>(running_var_data);
   auto p_saved_mean = reinterpret_cast<void*>(saved_mean_data);
-  auto p_saved_inv_var = reinterpret_cast<void*>(saved_inv_var_data);
+  auto p_saved_inv_std = reinterpret_cast<void*>(saved_inv_std_data);
 
   if (std::is_same<T, MLFloat16>::value) {
     // Convert scale/B to float
@@ -97,7 +97,7 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
     auto f_running_mean = GetScratchBuffer<float>(C);
     auto f_running_var = GetScratchBuffer<float>(C);
     auto f_saved_mean = GetScratchBuffer<float>(C);
-    auto f_saved_inv_var = GetScratchBuffer<float>(C);
+    auto f_saved_inv_std = GetScratchBuffer<float>(C);
 
     Impl_Cast<CudaU, float>(Stream(), running_mean_data, f_running_mean.get(), C);
     Impl_Cast<CudaU, float>(Stream(), running_var_data, f_running_var.get(), C);
@@ -105,7 +105,7 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
     p_running_mean = f_running_mean.get();
     p_running_var = f_running_var.get();
     p_saved_mean = f_saved_mean.get();
-    p_saved_inv_var = f_saved_inv_var.get();
+    p_saved_inv_std = f_saved_inv_std.get();
   } else if (mean_data != running_mean_data) {
     CUDA_RETURN_IF_ERROR(cudaMemcpyAsync(running_mean_data, mean_data, C * sizeof(U), cudaMemcpyDeviceToDevice, Stream()));
     CUDA_RETURN_IF_ERROR(cudaMemcpyAsync(running_var_data, var_data, C * sizeof(U), cudaMemcpyDeviceToDevice, Stream()));
@@ -128,11 +128,11 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
       p_running_var,
       epsilon_,
       p_saved_mean,
-      p_saved_inv_var));
+      p_saved_inv_std));
 
   if (std::is_same<U, MLFloat16>::value) {
     Impl_Cast<float, CudaU>(Stream(), reinterpret_cast<float*>(p_saved_mean), saved_mean_data, C);
-    Impl_Cast<float, CudaU>(Stream(), reinterpret_cast<float*>(p_saved_inv_var), saved_inv_var_data, C);
+    Impl_Cast<float, CudaU>(Stream(), reinterpret_cast<float*>(p_saved_inv_std), saved_inv_std_data, C);
   }
 
   return Status::OK();

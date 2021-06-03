@@ -1940,11 +1940,11 @@ Example 4:
       .TypeConstraint(
           "T",
           {"tensor(float16)", "tensor(float)", "tensor(double)", "tensor(bfloat16)"},
-          "Constrain input and output types to float tensors.")
+          "Constrain input and output types (except mean and variance) to float tensors.")
       .TypeConstraint(
           "U",
           {"tensor(float16)", "tensor(float)", "tensor(double)", "tensor(bfloat16)"},
-          "Constrain input and output types to float tensors.");
+          "Constrain mean and variance to float tensors.");
 
   ONNX_CONTRIB_OPERATOR_SCHEMA(Group)
       .SetDomain(kMSDomain)

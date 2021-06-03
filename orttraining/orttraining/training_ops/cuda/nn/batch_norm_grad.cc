@@ -31,18 +31,18 @@ Status BatchNormalizationGrad<T, U>::ComputeInternal(OpKernelContext* ctx) const
   const Tensor* X = ctx->Input<Tensor>(1);
   const Tensor* Scale = ctx->Input<Tensor>(2);
   const Tensor* saved_mean = ctx->Input<Tensor>(3);
-  const Tensor* saved_inv_var = ctx->Input<Tensor>(4);
+  const Tensor* saved_inv_std = ctx->Input<Tensor>(4);
   const TensorShape input_shape = X->Shape();
   const TensorShape channel_shape = saved_mean->Shape();
 
   // no B here, but B has same size as Scale, so can validate inputs for gradient with this substitute
-  ORT_RETURN_IF_ERROR(BatchNormHelper::ValidateInputs(X, Scale, Scale, saved_mean, saved_inv_var));
+  ORT_RETURN_IF_ERROR(BatchNormHelper::ValidateInputs(X, Scale, Scale, saved_mean, saved_inv_std));
 
   auto dY_data = reinterpret_cast<const CudaT*>(dY->template Data<T>());
   auto X_data = reinterpret_cast<const CudaT*>(X->template Data<T>());
   auto Scale_data = reinterpret_cast<const CudaT*>(Scale->template Data<T>());
   auto saved_mean_data = reinterpret_cast<const CudaU*>(saved_mean->template Data<U>());
-  auto saved_inv_var_data = reinterpret_cast<const CudaU*>(saved_inv_var->template Data<U>());
+  auto saved_inv_std_data = reinterpret_cast<const CudaU*>(saved_inv_std->template Data<U>());
 
   auto dX_data = reinterpret_cast<CudaT*>(ctx->Output(0, input_shape)->template MutableData<T>());
   auto dScale_data = reinterpret_cast<CudaT*>(ctx->Output(1, channel_shape)->template MutableData<T>());
@@ -60,7 +60,7 @@ Status BatchNormalizationGrad<T, U>::ComputeInternal(OpKernelContext* ctx) const
   const int64_t C = input_shape.GetDims()[1];
   auto p_scale = reinterpret_cast<const void*>(Scale_data);
   auto p_saved_mean = reinterpret_cast<const void*>(saved_mean_data);
-  auto p_saved_inv_var = reinterpret_cast<const void*>(saved_inv_var_data);
+  auto p_saved_inv_std = reinterpret_cast<const void*>(saved_inv_std_data);
   auto p_dScale = reinterpret_cast<void*>(dScale_data);
   auto p_dBias = reinterpret_cast<void*>(dBias_data);
 
@@ -82,13 +82,13 @@ Status BatchNormalizationGrad<T, U>::ComputeInternal(OpKernelContext* ctx) const
 
   if (std::is_same<U, MLFloat16>::value) {
     auto f_saved_mean = GetScratchBuffer<float>(C);
-    auto f_saved_inv_var = GetScratchBuffer<float>(C);
+    auto f_saved_inv_std = GetScratchBuffer<float>(C);
 
     Impl_Cast<CudaU, float>(Stream(), saved_mean_data, f_saved_mean.get(), C);
-    Impl_Cast<CudaU, float>(Stream(), saved_inv_var_data, f_saved_inv_var.get(), C);
+    Impl_Cast<CudaU, float>(Stream(), saved_inv_std_data, f_saved_inv_std.get(), C);
 
     p_saved_mean = f_saved_mean.get();
-    p_saved_inv_var = f_saved_inv_var.get();
+    p_saved_inv_std = f_saved_inv_std.get();
   }
 
   CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationBackward(
@@ -110,7 +110,7 @@ Status BatchNormalizationGrad<T, U>::ComputeInternal(OpKernelContext* ctx) const
       p_dBias,
       epsilon_,
       p_saved_mean,
-      p_saved_inv_var));
+      p_saved_inv_std));
 
   if (std::is_same<T, MLFloat16>::value) {
     Impl_Cast<float, CudaT>(Stream(), reinterpret_cast<float*>(p_dScale), dScale_data, C);
