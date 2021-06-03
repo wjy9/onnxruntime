@@ -135,8 +135,13 @@ static const TensorTransformFunc embedding_num_weights = [](const at::Tensor& te
   return c10::IValue(tensor.size(0));
 };
 
+static const TensorTransformFunc unfold_input_sizes = [](const at::Tensor& tensor) {
+  return c10::IValue(tensor.sizes());
+};
+
 static const std::unordered_map<std::string, std::unordered_map<size_t, TensorTransformFunc>> TENSOR_TRANSFORM_FUNCS = {
     {"aten::embedding_backward", {{2, embedding_num_weights}}},
+    {"aten::unfold", {{1, unfold_input_sizes}}},
 };
 
 template <typename T>
