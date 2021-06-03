@@ -141,7 +141,7 @@ static const TensorTransformFunc unfold_input_sizes = [](const at::Tensor& tenso
 
 static const std::unordered_map<std::string, std::unordered_map<size_t, TensorTransformFunc>> TENSOR_TRANSFORM_FUNCS = {
     {"aten::embedding_backward", {{2, embedding_num_weights}}},
-    {"aten::unfold", {{1, unfold_input_sizes}}},
+    {"aten::unfold_backward", {{1, unfold_input_sizes}}},
 };
 
 template <typename T>
@@ -221,7 +221,8 @@ std::vector<DLManagedTensor*> ExecuteATenOperator(
   aten_op.op->getOperation()(&stack);
   std::vector<DLManagedTensor*> result;
   for (const auto& ret : torch::jit::pop(stack, aten_op.return_size)) {
-    result.emplace_back(at::toDLPack(ret.toTensor()));
+    const auto& tensor = ret.toTensor();
+    result.emplace_back(at::toDLPack(tensor.is_contiguous() ? tensor : tensor.contiguous()));
   }
 
   return result;
