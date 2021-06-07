@@ -55,13 +55,14 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
 
   auto y_data = reinterpret_cast<CudaT*>(Y->template MutableData<T>());
 
-  const auto alpha = Consts<CudaT>::One;
-  const auto beta = Consts<CudaT>::Zero;
+  const auto alpha = std::is_same<T, MLFloat16>::value ? Consts<float>::One : Consts<CudaT>::One;
+  const auto beta = std::is_same<T, MLFloat16>::value ? Consts<float>::Zero : Consts<CudaT>::Zero;
 
   CudnnTensor data_desc, bn_tensor_desc;
   vector<int64_t> new_dims;
   BatchNormHelper::NormalizeDims(x_shape, new_dims);
   ORT_RETURN_IF_ERROR(data_desc.Set(new_dims, CudnnTensor::GetDataType<CudaT>()));
+  // for fp16 input, `bn_tensor_desc` will have a float type; otherwise it will be the same as input type.
   ORT_RETURN_IF_ERROR(bn_tensor_desc.Set(data_desc, cudnn_batch_norm_mode_));
 
   auto running_mean_data = reinterpret_cast<CudaU*>(running_mean->template MutableData<U>());
@@ -78,10 +79,8 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
   auto p_saved_inv_std = reinterpret_cast<void*>(saved_inv_std_data);
 
   if (std::is_same<T, MLFloat16>::value) {
+    std::cout << "ENTERING Float16...\n";
     // Convert scale/B to float
-    CudnnTensor scale_desc;
-    ORT_RETURN_IF_ERROR(scale_desc.Set(new_dims, CudnnTensor::GetDataType<float>()));
-    ORT_RETURN_IF_ERROR(bn_tensor_desc.Set(scale_desc, cudnn_batch_norm_mode_));
     auto f_scale = GetScratchBuffer<float>(C);
     auto f_B = GetScratchBuffer<float>(C);
 
@@ -93,14 +92,15 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
   }
 
   if (std::is_same<U, MLFloat16>::value) {
+    std::cout << "ENTERING Float16 2...\n";
     // Convert mean/var to float
     auto f_running_mean = GetScratchBuffer<float>(C);
     auto f_running_var = GetScratchBuffer<float>(C);
     auto f_saved_mean = GetScratchBuffer<float>(C);
     auto f_saved_inv_std = GetScratchBuffer<float>(C);
 
-    Impl_Cast<CudaU, float>(Stream(), running_mean_data, f_running_mean.get(), C);
-    Impl_Cast<CudaU, float>(Stream(), running_var_data, f_running_var.get(), C);
+    Impl_Cast<CudaU, float>(Stream(), mean_data, f_running_mean.get(), C);
+    Impl_Cast<CudaU, float>(Stream(), var_data, f_running_var.get(), C);
 
     p_running_mean = f_running_mean.get();
     p_running_var = f_running_var.get();
@@ -134,7 +134,7 @@ Status BatchNormInternal<T, U>::ComputeInternal(OpKernelContext* p_op_kernel_con
     Impl_Cast<float, CudaU>(Stream(), reinterpret_cast<float*>(p_saved_mean), saved_mean_data, C);
     Impl_Cast<float, CudaU>(Stream(), reinterpret_cast<float*>(p_saved_inv_std), saved_inv_std_data, C);
   }
-
+  std::cout << "BNI Complete\n";
   return Status::OK();
 }
 
