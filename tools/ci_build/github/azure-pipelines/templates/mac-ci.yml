@@ -1,3 +1,6 @@
+variables:
+  MACOSX_DEPLOYMENT_TARGET: '10.14'
+
 parameters:
   JobName: 'MacOS_CI_Dev'
   SubmoduleCheckoutMode: ''

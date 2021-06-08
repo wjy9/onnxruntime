@@ -101,6 +101,8 @@ jobs:
   pool: 
     vmImage: 'macOS-10.15'
   timeoutInMinutes:  120
+  variables:
+    MACOSX_DEPLOYMENT_TARGET: '10.14'
   steps:
     - template: set-version-number-variables-step.yml
 

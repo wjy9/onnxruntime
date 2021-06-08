@@ -108,6 +108,8 @@ jobs:
 - job: MacOS_C_API_Packaging_CPU_x64
   workspace:
     clean: all
+  variables:
+    MACOSX_DEPLOYMENT_TARGET: '10.14'
   pool: 
     vmImage: 'macOS-10.15'
   timeoutInMinutes:  120
