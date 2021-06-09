@@ -33,14 +33,9 @@ GradientGraphBuilder::GradientGraphBuilder(Graph* graph,
   auto rule_based_graph_transformer =
       std::make_unique<RuleBasedGraphTransformer>("pre_training_rule_based_graph_transformer");
   rule_based_graph_transformer->Register(std::make_unique<InsertMaxPoolOutput>());
-  std::cout << "FLAG for BN replacement\n";
-  rule_based_graph_transformer->Register(std::make_unique<BatchNormReplacement>());
 
   graph_transformation_mgr_.Register(std::move(rule_based_graph_transformer),
                                      TransformerLevel::Level2);
-
-  auto opt_ret = graph_transformation_mgr_.ApplyTransformers(*graph_, TransformerLevel::Level2, logger_);
-  ORT_THROW_IF_ERROR(opt_ret);
 
   auto forward_reachable_nodes = BFSWithStopGradient(x_node_arg_names);
 
@@ -206,8 +201,8 @@ Status GradientGraphBuilder::CheckNodeArgsReachable() const {
 }
 
 Status GradientGraphBuilder::Build(const std::unordered_set<std::string>* p_initializer_names_to_preserve) {
-  // auto opt_ret = graph_transformation_mgr_.ApplyTransformers(*graph_, TransformerLevel::Level2, logger_);
-  // ORT_RETURN_IF_ERROR(opt_ret);
+  auto opt_ret = graph_transformation_mgr_.ApplyTransformers(*graph_, TransformerLevel::Level2, logger_);
+  ORT_RETURN_IF_ERROR(opt_ret);
 
   GraphAugmenter::GraphDefs gradient_graph_defs;
   // add "gradient of the loss" node, always 1.

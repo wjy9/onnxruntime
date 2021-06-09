@@ -48,13 +48,14 @@ Status BatchNormalizationGrad<T, U>::ComputeInternal(OpKernelContext* ctx) const
   auto dScale_data = reinterpret_cast<CudaT*>(ctx->Output(1, channel_shape)->template MutableData<T>());
   auto dBias_data = reinterpret_cast<CudaT*>(ctx->Output(2, channel_shape)->template MutableData<T>());
 
-  const auto alpha = Consts<float>::One;
-  const auto beta = Consts<float>::Zero;
+  const auto alpha = std::is_same<T, MLFloat16>::value ? Consts<float>::One : Consts<CudaT>::One;
+  const auto beta = std::is_same<T, MLFloat16>::value ? Consts<float>::Zero : Consts<CudaT>::Zero;
 
   CudnnTensor input_tensor, scale_bias_tensor;
   vector<int64_t> new_dims;
   BatchNormHelper::NormalizeDims(input_shape, new_dims);
   ORT_RETURN_IF_ERROR(input_tensor.Set(new_dims, CudnnTensor::GetDataType<CudaT>()));
+  // for fp16 input, `scale_bias_tensor` will have a float type; otherwise it will be the same as input type.
   ORT_RETURN_IF_ERROR(scale_bias_tensor.Set(input_tensor, cudnn_batch_norm_mode_));
 
   const int64_t C = input_shape.GetDims()[1];
@@ -64,31 +65,29 @@ Status BatchNormalizationGrad<T, U>::ComputeInternal(OpKernelContext* ctx) const
   auto p_dScale = reinterpret_cast<void*>(dScale_data);
   auto p_dBias = reinterpret_cast<void*>(dBias_data);
 
+  IAllocatorUniquePtr<float> p_f_scale, p_f_dScale, p_f_dBias, p_f_saved_mean, p_f_saved_inv_std;
+
   if (std::is_same<T, MLFloat16>::value) {
-    CudnnTensor tmp_tensor;
-    ORT_RETURN_IF_ERROR(tmp_tensor.Set(new_dims, CudnnTensor::GetDataType<float>()));
-    ORT_RETURN_IF_ERROR(scale_bias_tensor.Set(tmp_tensor, cudnn_batch_norm_mode_));
+    p_f_scale = GetScratchBuffer<float>(C);
+    p_f_dScale = GetScratchBuffer<float>(C);
+    p_f_dBias = GetScratchBuffer<float>(C);
 
-    auto f_scale = GetScratchBuffer<float>(C);
-    auto f_dScale = GetScratchBuffer<float>(C);
-    auto f_dBias = GetScratchBuffer<float>(C);
+    Impl_Cast<CudaT, float>(Stream(), Scale_data, p_f_scale.get(), C);
 
-    Impl_Cast<CudaT, float>(Stream(), Scale_data, f_scale.get(), C);
-
-    p_scale = f_scale.get();
-    p_dScale = f_dScale.get();
-    p_dBias = f_dBias.get();
+    p_scale = p_f_scale.get();
+    p_dScale = p_f_dScale.get();
+    p_dBias = p_f_dBias.get();
   }
 
   if (std::is_same<U, MLFloat16>::value) {
-    auto f_saved_mean = GetScratchBuffer<float>(C);
-    auto f_saved_inv_std = GetScratchBuffer<float>(C);
+    p_f_saved_mean = GetScratchBuffer<float>(C);
+    p_f_saved_inv_std = GetScratchBuffer<float>(C);
 
-    Impl_Cast<CudaU, float>(Stream(), saved_mean_data, f_saved_mean.get(), C);
-    Impl_Cast<CudaU, float>(Stream(), saved_inv_std_data, f_saved_inv_std.get(), C);
+    Impl_Cast<CudaU, float>(Stream(), saved_mean_data, p_f_saved_mean.get(), C);
+    Impl_Cast<CudaU, float>(Stream(), saved_inv_std_data, p_f_saved_inv_std.get(), C);
 
-    p_saved_mean = f_saved_mean.get();
-    p_saved_inv_std = f_saved_inv_std.get();
+    p_saved_mean = p_f_saved_mean.get();
+    p_saved_inv_std = p_f_saved_inv_std.get();
   }
 
   CUDNN_RETURN_IF_ERROR(cudnnBatchNormalizationBackward(

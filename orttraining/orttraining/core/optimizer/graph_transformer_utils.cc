@@ -133,6 +133,7 @@ std::vector<std::unique_ptr<GraphTransformer>> GeneratePreTrainingTransformers(
           std::make_unique<RuleBasedGraphTransformer>(optimizer_utils::GenerateRuleBasedTransformerName(level),
                                                               compatible_eps);
       rule_transformer->Register(std::make_unique<ConcatReplacement>());
+      rule_transformer->Register(std::make_unique<BatchNormReplacement>());
     } break;
 
     case TransformerLevel::Level3: {
