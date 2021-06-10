@@ -4,7 +4,7 @@
 #include "orttraining/models/runner/training_util.h"
 
 #include <sstream>
-
+#include <random>
 #include "constant.h"
 #include "core/framework/data_types.h"
 #include "core/framework/tensorprotoutils.h"
