@@ -2,11 +2,12 @@
 // Licensed under the MIT License.
 
 #include <unordered_map>
-
-#include "core/common/common.h"
 #include "core/common/optional.h"
 
-namespace onnxruntime {
+#include "core/common/common.h"
+
+
+    namespace onnxruntime {
 namespace test {
 
 // map of environment variable name to optional value
