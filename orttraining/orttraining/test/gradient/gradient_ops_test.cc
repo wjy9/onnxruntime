@@ -708,7 +708,7 @@ TEST(GradientCheckerTest, SplitGrad) {
 template <typename T>
 static std::vector<std::vector<T>> GetRandomValuesForMaxPool(const std::vector<TensorInfo>& infos) {
   std::vector<std::vector<T>> datas(infos.size());
-  std::mt19937 gen(std::random_device())
+  std::mt19937 gen(std::random_device());
   for (size_t i = 0; i < infos.size(); i++) {
     const TensorInfo& info = infos[i];
 
