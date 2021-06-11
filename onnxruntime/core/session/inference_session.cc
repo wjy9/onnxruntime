@@ -296,6 +296,7 @@ void InferenceSession::ConstructorCommon(const SessionOptions& session_options,
 
   telemetry_ = {};
   allocator_manager_ = std::make_shared<onnxruntime::AllocatorManager>();
+  printf("InferenceSession ConstructorCommon done\n");
 }
 
 InferenceSession::InferenceSession(const SessionOptions& session_options, const Environment& session_env)
@@ -417,6 +418,7 @@ common::Status InferenceSession::RegisterExecutionProvider(std::unique_ptr<IExec
   }
 
   const std::string& provider_type = p_exec_provider->Type();
+  printf("ep: %s\n", provider_type.c_str());
 
   p_exec_provider->RegisterAllocator(allocator_manager_);
 
@@ -839,7 +841,7 @@ common::Status InferenceSession::TransformGraph(onnxruntime::Graph& graph,
   // first apply global(execution provider independent),  level 1(default/system/basic) graph to graph optimizations
   ORT_RETURN_IF_ERROR_SESSIONID_(
       graph_transformer_mgr.ApplyTransformers(graph, TransformerLevel::Level1, *session_logger_));
-
+printf("ApplyTransformers done\n");
 #ifdef USE_DML
   // TODO: this is a temporary workaround to apply the DML EP's custom graph transformer prior to partitioning. This
   // transformer applies DML-specific fusions that go beyond what ORT offers by default. Ideally the DML EP should
@@ -1131,6 +1133,7 @@ common::Status InferenceSession::AddPrePackedWeightsContainer(PrepackedWeightsCo
 }
 
 common::Status InferenceSession::Initialize() {
+  printf("InferenceSession Initialize\n");
   Status status = Status::OK();
   TimePoint tp;
   if (session_profiler_.IsEnabled()) {
@@ -1248,6 +1251,18 @@ common::Status InferenceSession::Initialize() {
       // add predefined transformers
       AddPredefinedTransformers(graph_transformation_mgr_, session_options_.graph_optimization_level);
 
+    // auto nodes = graph.Nodes();
+    // for (auto& n : nodes) {
+    //   printf("%s:%d node: %s\n", __FILE__, __LINE__, n.Name().c_str());
+    //   auto inputs = n.InputDefs();
+    //   auto outputs = n.OutputDefs();
+    //   for (auto i : inputs) {
+    //     printf("input: %s %d %ld\n", i->Name().c_str(), i->Shape()->dim_size(), i->Shape()->dim()[0].dim_value());
+    //   }
+    //   for (auto o : outputs) {
+    //     printf("output: %s %d %ld\n", o->Name().c_str(), o->Shape()->dim_size(), o->Shape()->dim()[0].dim_value());
+    //   }
+    // }
       // apply any transformations to the main graph and any subgraphs
       ORT_RETURN_IF_ERROR_SESSIONID_(TransformGraph(graph, graph_transformation_mgr_,
                                                     execution_providers_, kernel_registry_manager_,
@@ -1255,6 +1270,18 @@ common::Status InferenceSession::Initialize() {
                                                     *session_state_,
                                                     saving_ort_format));
 
+    // auto nodes2 = graph.Nodes();
+    // for (auto& n : nodes2) {
+    //   printf("%s:%d node: %s\n", __FILE__, __LINE__, n.Name().c_str());
+    //   auto inputs = n.InputDefs();
+    //   auto outputs = n.OutputDefs();
+    //   for (auto i : inputs) {
+    //     printf("input: %s %d %ld\n", i->Name().c_str(), i->Shape()->dim_size(), i->Shape()->dim()[0].dim_value());
+    //   }
+    //   for (auto o : outputs) {
+    //     printf("output: %s %d %ld\n", o->Name().c_str(), o->Shape()->dim_size(), o->Shape()->dim()[0].dim_value());
+    //   }
+    // }
       // now that all the transforms are done, call Resolve on the main graph. this will recurse into the subgraphs.
       ORT_RETURN_IF_ERROR_SESSIONID_(graph.Resolve());
 

@@ -15,7 +15,7 @@ namespace ort_dnnl {
 ONNX_OPERATOR_KERNEL_EX(
     Gemm,
     kOnnxDomain,
-    7,
+    11,
     kDnnlExecutionProvider,
     KernelDefBuilder::Create()->TypeConstraint("T", DataTypeImpl::GetTensorType<float>()),
     Gemm<float>);

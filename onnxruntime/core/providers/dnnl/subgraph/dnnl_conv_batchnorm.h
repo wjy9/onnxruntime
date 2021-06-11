@@ -426,7 +426,7 @@ class DnnlConvBatchNorm : public DnnlKernel {
     }
   }
 
-  virtual void ReorderWeights(const OrtCustomOpApi* api, OrtKernelContext* context, const dnnl::engine& cpu_engine) override {
+  virtual void ReorderWeights(const OrtCustomOpApi* api, OrtKernelContext* context, const dnnl::engine& cpu_engine, const dnnl::stream&) override {
     Ort::CustomOpApi ort{*api};
     int input_index = mklnode_ptr_->input_start_index < 0 ? 0 : mklnode_ptr_->input_start_index;
     const OrtValue* input_tensor = ort.KernelContext_GetInput(context, input_index + 1);
@@ -538,7 +538,7 @@ class DnnlConvBatchNorm : public DnnlKernel {
 
     std::shared_ptr<dnnl::memory> filter_dst_mem = provider_->GetWeightsMemoryBuffer(mklnode_ptr_->weight_name);
     if (filter_dst_mem == nullptr) {
-      ReorderWeights(api, context, dnnl_engine_cpu_);
+      ReorderWeights(api, context, dnnl_engine_cpu_, *stream_);
       filter_dst_mem = provider_->GetWeightsMemoryBuffer(mklnode_ptr_->weight_name);
     }
     if (!gpu_available_) {

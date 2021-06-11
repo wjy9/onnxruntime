@@ -2772,6 +2772,10 @@ std::vector<NodeArg*> Graph::CreateNodeArgs(const google::protobuf::RepeatedPtrF
       // Assign type/shape information to node input arg.
       type = &(name_to_type_iter->second);
     }
+    if (name.size() == 0) {
+      // printf("input not exist %s\n", name.c_str());
+      continue;
+    }
 
     auto node_arg = &GetOrCreateNodeArg(name, type);
     results.push_back(node_arg);

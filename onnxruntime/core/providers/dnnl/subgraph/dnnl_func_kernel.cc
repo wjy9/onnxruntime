@@ -16,6 +16,7 @@
 #include "core/providers/dnnl/subgraph/dnnl_sum.h"
 #include "core/providers/dnnl/subgraph/dnnl_lrn.h"
 #include "core/providers/dnnl/subgraph/dnnl_matmul.h"
+#include "core/providers/dnnl/subgraph/dnnl_lstm.h"
 #ifdef ENABLE_TRAINING
 #include "core/providers/dnnl/subgraph/dnnl_convgrad.h"
 #include "core/providers/dnnl/subgraph/dnnl_relugrad.h"
@@ -70,6 +71,7 @@ class SubgraphPrimitive : public PrimitiveBase {
 
  private:
   void CreateKernels(const SubgraphParams& params) {
+    printf("CreateKernels");
     for (const auto& dnnl_node : params.subgraph->dnnl_nodes) {
       if (dnnl_node.name == "Conv") {
         std::ostringstream os;
@@ -212,6 +214,16 @@ class SubgraphPrimitive : public PrimitiveBase {
           kernel->parents_.push_back(context_.kernels[index]);
         }
         context_.kernels.push_back(kernel);
+      } else if (dnnl_node.name == "LSTM") {
+        printf("create LSTM kernel\n");
+        std::ostringstream os;
+        os << "LSTM-" << dnnl_node.node_index << "-";
+        std::shared_ptr<DnnlLSTM<T>> kernel;
+        kernel = std::make_shared<DnnlLSTM<T>>(dnnl_node, params.provider, *params.attributes, os.str());
+        for (auto index : dnnl_node.parent_nodes) {
+          kernel->parents_.push_back(context_.kernels[index]);
+        }
+        context_.kernels.push_back(kernel);
       }
 #ifdef ENABLE_TRAINING
       else if (dnnl_node.name == "ConvGrad") {
@@ -285,9 +297,10 @@ class SubgraphPrimitive : public PrimitiveBase {
     for (auto& kernel : context_.kernels) {
       kernel->CreatePrimitives(api, context, dnnl_engine_instance_->getEngineMap(), context_.net, context_.net_args);
       if (kernel->primitive_created_status_.IsOK()) {
-        kernel->ReorderWeights(api, context, dnnl_engine_instance_->getEngine(dnnl::engine::kind::cpu));
+        kernel->ReorderWeights(api, context, dnnl_engine_instance_->getEngine(dnnl::engine::kind::cpu), *context_.stream);
       }
     }
+    printf("Initialize done\n");
   }
 
   SubgraphContext context_;

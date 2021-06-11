@@ -40,11 +40,13 @@ DNNLExecutionProvider::~DNNLExecutionProvider() {
 }
 
 namespace ort_dnnl {
-class ONNX_OPERATOR_KERNEL_CLASS_NAME(kDnnlExecutionProvider, kOnnxDomain, 7, Gemm);
+class ONNX_OPERATOR_KERNEL_CLASS_NAME(kDnnlExecutionProvider, kOnnxDomain, 11, Gemm);
+// class ONNX_OPERATOR_KERNEL_CLASS_NAME(kDnnlExecutionProvider, kOnnxDomain, 7, LSTM);
 
 Status RegisterDNNLKernels(KernelRegistry& kernel_registry) {
   static const BuildKernelCreateInfoFn function_table[] = {
-      BuildKernelCreateInfo<ONNX_OPERATOR_KERNEL_CLASS_NAME(kDnnlExecutionProvider, kOnnxDomain, 7, Gemm)>,
+      BuildKernelCreateInfo<ONNX_OPERATOR_KERNEL_CLASS_NAME(kDnnlExecutionProvider, kOnnxDomain, 11, Gemm)>,
+      // BuildKernelCreateInfo<ONNX_OPERATOR_KERNEL_CLASS_NAME(kDnnlExecutionProvider, kOnnxDomain, 11, LSTM)>,
   };
 
   for (auto& function_table_entry : function_table) {
@@ -124,7 +126,10 @@ void DNNLExecutionProvider::CreateOrUpdateDnnlNode(const Node* node,
                                                    std::map<std::string, size_t>& output_to_source_node_map,
                                                    NodeAttributes& subgraph_attributes) const {
   const auto& node_inputs = node->InputDefs();
-  sub_var.outputs.push_back(node->OutputDefs()[0]->Name());
+  for (const auto& o : node->OutputDefs()) {
+    sub_var.outputs.push_back(o->Name());
+    // printf("node OutputDefs %s %d\n", o->Name().c_str(), o->Shape()->dim_size());
+  }
 
   if (!fused) {
     ort_dnnl::DnnlNode dnnl_node;
@@ -149,14 +154,12 @@ void DNNLExecutionProvider::CreateOrUpdateDnnlNode(const Node* node,
     dnnl_node.node_index = static_cast<int>(subgraph_ptr->dnnl_nodes.size()) + 1;
     const auto& node_outputs = node->OutputDefs();
     dnnl_node.output_name = node_outputs[0]->Name();
-#ifdef ENABLE_TRAINING
     dnnl_node.num_outputs = static_cast<int>(node->OutputDefs().size());
     if (dnnl_node.num_outputs > 1) {
       for (auto n : node_outputs) {
         dnnl_node.output_names.push_back(n->Name());
       }
     }
-#endif  //ENABLE_TRAINING
 
     if (node->OpType() == "Conv" || node->OpType() == "MatMul") {
       dnnl_node.weight_name = node->InputDefs()[1]->Name();
@@ -208,6 +211,7 @@ void DNNLExecutionProvider::CreateOrUpdateDnnlNode(const Node* node,
 
     for (auto att_it = attributes.begin(); att_it != attributes.end(); ++att_it) {
       std::string key = op_name + "-" + std::to_string(index) + "-" + att_it->first();
+      // printf("attr: %s\n", key.c_str());
       subgraph_attributes[key] = att_it->second();
     }
   }
@@ -285,6 +289,9 @@ std::vector<std::unique_ptr<ComputeCapability>> DNNLExecutionProvider::GetCapabi
       //   Update inputs, outputs and parent nodes
       //   Collect attributes and modify the key to make it unique
       CreateOrUpdateDnnlNode(node, subgraph_ptr, sub_var, fused, output_to_source_node_map, *subgraph_attributes);
+      // for (const auto& i : subgraph_ptr->dnnl_nodes) {
+      //   printf("dnnl node: %s\n", i.ToString().c_str());
+      // }
 
       auto temp_index = node_index + 1;
       if (temp_index < graph_viewer.MaxNodeIndex()) {
@@ -361,6 +368,7 @@ std::vector<std::unique_ptr<ComputeCapability>> DNNLExecutionProvider::GetCapabi
         }
       }
     } else {
+      // printf("optype %s\n", node->OpType().c_str());
       if (!sub_var.subgraph_node_indexes.empty()) {
         CreateMetaDef(graph_viewer, *subgraph_attributes, subgraph_ptr, sub_var, result);
         subgraph_ptr = std::make_shared<ort_dnnl::Subgraph>(ort_dnnl::Subgraph(graph_name));
@@ -420,9 +428,9 @@ void DNNLExecutionProvider::CreateMetaDef(const GraphViewer& graph_viewer,
     auto itr = std::find(sub_var.outputs_as_input_other_node.begin(),
                          sub_var.outputs_as_input_other_node.end(), mklnode.output_name);
     if (itr == sub_var.outputs_as_input_other_node.end()) {
-#ifndef ENABLE_TRAINING
-      meta_def->outputs().push_back(mklnode.output_name);
-#else
+// #ifndef ENABLE_TRAINING
+//       meta_def->outputs().push_back(mklnode.output_name);
+// #else
       if (mklnode.num_outputs == 1) {
         meta_def->outputs().push_back(mklnode.output_name);
       } else {
@@ -430,7 +438,7 @@ void DNNLExecutionProvider::CreateMetaDef(const GraphViewer& graph_viewer,
           meta_def->outputs().push_back(output);
         }
       }
-#endif  // ENABLE_TRAINING
+// #endif  // ENABLE_TRAINING
       mklnode.output_index = static_cast<int>(meta_def->outputs().size()) - 1;
     }
   }

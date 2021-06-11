@@ -28,10 +28,8 @@ struct DnnlNode {
   int output_index = -1;       // index in output()
   std::string weight_name;
   std::string output_name;
-#ifdef ENABLE_TRAINING
   int num_outputs = 0;  // how many outputs
   std::vector<std::string> output_names;
-#endif  // ENABLE_TRAINING
   std::vector<size_t> parent_nodes;  // index to parents in vector mklnodes
 
 #ifdef ENABLE_TRAINING
@@ -43,15 +41,15 @@ struct DnnlNode {
     std::string key;
     key.reserve(128);
     key.append(name);
-    key.append("-");
+    key.append("!");
     key.append(std::to_string(input_start_index));
-    key.append("-");
+    key.append("@");
     key.append(std::to_string(num_inputs));
-    key.append("-");
+    key.append("^");
     key.append(std::to_string(output_index));
-    key.append("-");
+    key.append("*");
     key.append(output_name);
-    key.append("-");
+    key.append("$");
     for (auto& out : parent_nodes)
       key.append(std::to_string(out) + ",");
     key.append(";");

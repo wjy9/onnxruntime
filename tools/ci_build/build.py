@@ -962,6 +962,7 @@ def generate_build_tree(cmake_path, source_dir, build_dir, cuda_home, cudnn_home
     cmake_args += ["-D{}".format(define) for define in cmake_extra_defines]
 
     cmake_args += cmake_extra_args
+    cmake_args += ["-DCMAKE_VERBOSE_MAKEFILE=ON"]
 
     # ADO pipelines will store the pipeline build number
     # (e.g. 191101-2300.1.master) and source version in environment

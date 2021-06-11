@@ -412,7 +412,7 @@ set(onnxruntime_LINK_LIBATOMIC false)
 if (NOT MSVC AND NOT (CMAKE_SYSTEM_NAME STREQUAL "iOS"))
   include(CheckCXXSourceCompiles)
   set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
-  set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} -std=c++11)
+  set(CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS} -std=c++14)
   check_cxx_source_compiles("
     #include <atomic>
     int main() {
@@ -1177,6 +1177,7 @@ if (onnxruntime_USE_ARMNN)
 endif()
 
 if (onnxruntime_USE_DNNL)
+  add_definitions(-DUSE_DNNL)
   include(dnnl)
 endif()
 
@@ -1728,7 +1729,7 @@ if (WINDOWS_STORE)
   endif()
 endif()
 
-include(flake8.cmake)
+#include(flake8.cmake)
 
 if(UNIX)
   option(BUILD_PKGCONFIG_FILES "Build and install pkg-config files" ON)

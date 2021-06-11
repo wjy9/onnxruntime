@@ -161,6 +161,7 @@ static std::unique_ptr<ONNX_NAMESPACE::OpSchema> CreateSchema(const Graph& graph
 
   for (auto& input : meta_def->inputs) {
     auto input_arg = graph.GetNodeArg(input);
+    // printf("%s input_arg name %s\n", input.c_str(), input_arg->Name().c_str());
     // inputs must have a type. can be inferred for outputs.
     ORT_ENFORCE(input_arg->Type() != nullptr);
     op_schema->Input(i, input, "", *input_arg->Type());

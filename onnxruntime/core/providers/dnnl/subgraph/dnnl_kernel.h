@@ -30,10 +30,11 @@ class DnnlKernel {
                                 std::vector<dnnl::primitive>& net,
                                 std::vector<std::unordered_map<int, dnnl::memory>>& net_args) = 0;
 
-  virtual void ReorderWeights(const OrtCustomOpApi* api, OrtKernelContext* context, const dnnl::engine& cpu_engine) {
+  virtual void ReorderWeights(const OrtCustomOpApi* api, OrtKernelContext* context, const dnnl::engine& cpu_engine, const dnnl::stream& stream) {
     ORT_UNUSED_PARAMETER(api);
     ORT_UNUSED_PARAMETER(context);
     ORT_UNUSED_PARAMETER(cpu_engine);
+    ORT_UNUSED_PARAMETER(stream);
   }
   virtual void SetProvider(DNNLExecutionProvider* provider) {
     provider_ = provider;
