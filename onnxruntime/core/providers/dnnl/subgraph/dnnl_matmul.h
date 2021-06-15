@@ -32,6 +32,7 @@ class DnnlMatmul : public DnnlKernel {
       cpu_engine = iter->second;
       engine_to_use = cpu_engine;
     }
+    stream_ = std::make_unique<dnnl::stream>(dnnl::stream(cpu_engine));
     gpu_available_ = false;
     dnnl::engine gpu_engine;
     iter = dnnl_engine.find(dnnl::engine::kind::gpu);
@@ -248,7 +249,7 @@ class DnnlMatmul : public DnnlKernel {
 
     std::shared_ptr<dnnl::memory> weights_dst_mem = provider_->GetWeightsMemoryBuffer(mklnode_ptr_->weight_name);
     if (weights_dst_mem == nullptr) {
-      ReorderWeights(api, context, dnnl_engine_cpu_);
+      ReorderWeights(api, context, dnnl_engine_cpu_, *stream_);
       weights_dst_mem = provider_->GetWeightsMemoryBuffer(mklnode_ptr_->weight_name);
     }
     if (!gpu_available_) {
@@ -302,6 +303,7 @@ class DnnlMatmul : public DnnlKernel {
   }
 
  private:
+  std::unique_ptr<dnnl::stream> stream_;
   dnnl::memory::format_tag weights_format_;
   std::shared_ptr<dnnl::memory> src_mem_from_;
 
