@@ -192,7 +192,8 @@ class DnnlMatmul : public DnnlKernel {
     }
   }
 
-  virtual void ReorderWeights(const OrtCustomOpApi* api, OrtKernelContext* context, const dnnl::engine& cpu_engine) override {
+  virtual void ReorderWeights(const OrtCustomOpApi* api, OrtKernelContext* context, const dnnl::engine& cpu_engine, const dnnl::stream& stream) override {
+    ORT_UNUSED_PARAMETER(stream);
     Ort::CustomOpApi ort{*api};
     int input_index = mklnode_ptr_->input_start_index < 0 ? 0 : mklnode_ptr_->input_start_index;
 
